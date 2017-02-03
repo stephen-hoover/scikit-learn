@@ -36,7 +36,7 @@ __all__ = ['cross_val_score', 'cross_val_predict', 'permutation_test_score',
 
 def cross_val_score(estimator, X, y=None, groups=None, scoring=None, cv=None,
                     n_jobs=1, verbose=0, fit_params=None,
-                    pre_dispatch='2*n_jobs'):
+                    pre_dispatch='2*n_jobs', use_sample_weight='both'):
     """Evaluate a score by cross-validation
 
     Read more in the :ref:`User Guide <cross_validation>`.
@@ -104,6 +104,11 @@ def cross_val_score(estimator, X, y=None, groups=None, scoring=None, cv=None,
             - A string, giving an expression as a function of n_jobs,
               as in '2*n_jobs'
 
+    use_sample_weight : {'both', 'scoring', 'fit'}
+        If the ``fit_params`` includes a "sample_weight" key,
+        should it be passed to the scoring function, the
+        estimator's ``fit`` method, or both?
+
     Returns
     -------
     scores : array of float, shape=(len(list(cv)),)
@@ -134,9 +139,10 @@ def cross_val_score(estimator, X, y=None, groups=None, scoring=None, cv=None,
     # independent, and that it is pickle-able.
     parallel = Parallel(n_jobs=n_jobs, verbose=verbose,
                         pre_dispatch=pre_dispatch)
-    scores = parallel(delayed(_fit_and_score)(clone(estimator), X, y, scorer,
-                                              train, test, verbose, None,
-                                              fit_params)
+    scores = parallel(delayed(_fit_and_score)(
+        clone(estimator), X, y, scorer,
+        train, test, verbose, None, fit_params,
+        use_sample_weight=use_sample_weight)
                       for train, test in cv.split(X, y, groups))
     return np.array(scores)[:, 0]
 
@@ -144,7 +150,8 @@ def cross_val_score(estimator, X, y=None, groups=None, scoring=None, cv=None,
 def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
                    parameters, fit_params, return_train_score=False,
                    return_parameters=False, return_n_test_samples=False,
-                   return_times=False, error_score='raise'):
+                   return_times=False, error_score='raise',
+                   use_sample_weight='both'):
     """Fit estimator and compute scores for a given dataset split.
 
     Parameters
@@ -190,6 +197,11 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
     return_parameters : boolean, optional, default: False
         Return parameters that has been used for the estimator.
 
+    use_sample_weight : {'both', 'scoring', 'fit'}
+        If the ``fit_params`` includes a "sample_weight" key,
+        should it be passed to the scoring function, the
+        estimator's ``fit`` method, or both?
+
     Returns
     -------
     train_score : float, optional
@@ -218,10 +230,21 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
                           for k, v in parameters.items()))
         print("[CV] %s %s" % (msg, (64 - len(msg)) * '.'))
 
+    if use_sample_weight not in ['both', 'scoring', 'fit']:
+        raise ValueError('"use_sample_weights" must be one of '
+                         '["both", "scoring", "fit""].')
+
     # Adjust length of sample weights
     fit_params = fit_params if fit_params is not None else {}
     fit_params = dict([(k, _index_param_value(X, v, train))
                       for k, v in fit_params.items()])
+
+    scorer_kwargs = {}
+    if 'sample_weight' in fit_params:
+        if use_sample_weight == 'both':
+            scorer_kwargs['sample_weight'] = fit_params['sample_weight']
+        elif use_sample_weight == 'scoring':
+            scorer_kwargs['sample_weight'] = fit_params.pop('sample_weight')
 
     if parameters is not None:
         estimator.set_params(**parameters)
@@ -257,10 +280,11 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
 
     else:
         fit_time = time.time() - start_time
-        test_score = _score(estimator, X_test, y_test, scorer)
+        test_score = _score(estimator, X_test, y_test, scorer, **scorer_kwargs)
         score_time = time.time() - start_time - fit_time
         if return_train_score:
-            train_score = _score(estimator, X_train, y_train, scorer)
+            train_score = _score(estimator, X_train, y_train,
+                                 scorer, **scorer_kwargs)
 
     if verbose > 2:
         msg += ", score=%f" % test_score
@@ -280,12 +304,12 @@ def _fit_and_score(estimator, X, y, scorer, train, test, verbose,
     return ret
 
 
-def _score(estimator, X_test, y_test, scorer):
+def _score(estimator, X_test, y_test, scorer, **scorer_kwargs):
     """Compute the score of an estimator on a given test set."""
     if y_test is None:
-        score = scorer(estimator, X_test)
+        score = scorer(estimator, X_test, **scorer_kwargs)
     else:
-        score = scorer(estimator, X_test, y_test)
+        score = scorer(estimator, X_test, y_test, **scorer_kwargs)
     if hasattr(score, 'item'):
         try:
             # e.g. unwrap memmapped scalars

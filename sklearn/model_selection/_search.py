@@ -265,7 +265,8 @@ class ParameterSampler(object):
 
 
 def fit_grid_point(X, y, estimator, parameters, train, test, scorer,
-                   verbose, error_score='raise', **fit_params):
+                   verbose, error_score='raise', use_sample_weight='both',
+                   **fit_params):
     """Run fit on one set of parameters.
 
     Parameters
@@ -307,6 +308,11 @@ def fit_grid_point(X, y, estimator, parameters, train, test, scorer,
         FitFailedWarning is raised. This parameter does not affect the refit
         step, which will always raise the error.
 
+    use_sample_weight : {'both', 'scoring', 'fit'}
+        If the ``fit_params`` includes a "sample_weight" key,
+        should it be passed to the scoring function, the
+        estimator's ``fit`` method, or both?
+
     Returns
     -------
     score : float
@@ -318,11 +324,13 @@ def fit_grid_point(X, y, estimator, parameters, train, test, scorer,
     n_samples_test : int
         Number of test samples in this split.
     """
-    score, n_samples_test, _ = _fit_and_score(estimator, X, y, scorer, train,
-                                              test, verbose, parameters,
-                                              fit_params=fit_params,
-                                              return_n_test_samples=True,
-                                              error_score=error_score)
+    score, n_samples_test, _ = _fit_and_score(
+        estimator, X, y, scorer, train,
+        test, verbose, parameters,
+        fit_params=fit_params,
+        return_n_test_samples=True,
+        error_score=error_score,
+        use_sample_weight=use_sample_weight)
     return score, parameters, n_samples_test
 
 
@@ -377,7 +385,8 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
     def __init__(self, estimator, scoring=None,
                  fit_params=None, n_jobs=1, iid=True,
                  refit=True, cv=None, verbose=0, pre_dispatch='2*n_jobs',
-                 error_score='raise', return_train_score=True):
+                 error_score='raise', return_train_score=True,
+                 use_sample_weight='both'):
 
         self.scoring = scoring
         self.estimator = estimator
@@ -390,6 +399,7 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
         self.pre_dispatch = pre_dispatch
         self.error_score = error_score
         self.return_train_score = return_train_score
+        self.use_sample_weight = use_sample_weight
 
     @property
     def _estimator_type(self):
@@ -590,7 +600,8 @@ class BaseSearchCV(six.with_metaclass(ABCMeta, BaseEstimator,
                                   return_train_score=self.return_train_score,
                                   return_n_test_samples=True,
                                   return_times=True, return_parameters=False,
-                                  error_score=self.error_score)
+                                  error_score=self.error_score,
+                                  use_sample_weight=self.use_sample_weight)
           for train, test in cv.split(X, y, groups)
           for parameters in candidate_params)
 
@@ -806,6 +817,10 @@ class GridSearchCV(BaseSearchCV):
         If ``'False'``, the ``cv_results_`` attribute will not include training
         scores.
 
+    use_sample_weight : {'both', 'scoring', 'fit'}
+        If the ``fit_params`` includes a "sample_weight" key,
+        should it be passed to the scoring function, the
+        estimator's ``fit`` method, or both?
 
     Examples
     --------
@@ -943,12 +958,13 @@ class GridSearchCV(BaseSearchCV):
     def __init__(self, estimator, param_grid, scoring=None, fit_params=None,
                  n_jobs=1, iid=True, refit=True, cv=None, verbose=0,
                  pre_dispatch='2*n_jobs', error_score='raise',
-                 return_train_score=True):
+                 return_train_score=True, use_sample_weight='both'):
         super(GridSearchCV, self).__init__(
             estimator=estimator, scoring=scoring, fit_params=fit_params,
             n_jobs=n_jobs, iid=iid, refit=refit, cv=cv, verbose=verbose,
             pre_dispatch=pre_dispatch, error_score=error_score,
-            return_train_score=return_train_score)
+            return_train_score=return_train_score,
+            use_sample_weight=use_sample_weight)
         self.param_grid = param_grid
         _check_param_grid(param_grid)
 
@@ -1071,6 +1087,11 @@ class RandomizedSearchCV(BaseSearchCV):
         If ``'False'``, the ``cv_results_`` attribute will not include training
         scores.
 
+    use_sample_weight : {'both', 'scoring', 'fit'}
+        If the ``fit_params`` includes a "sample_weight" key,
+        should it be passed to the scoring function, the
+        estimator's ``fit`` method, or both?
+
     Attributes
     ----------
     cv_results_ : dict of numpy (masked) ndarrays
@@ -1170,7 +1191,8 @@ class RandomizedSearchCV(BaseSearchCV):
     def __init__(self, estimator, param_distributions, n_iter=10, scoring=None,
                  fit_params=None, n_jobs=1, iid=True, refit=True, cv=None,
                  verbose=0, pre_dispatch='2*n_jobs', random_state=None,
-                 error_score='raise', return_train_score=True):
+                 error_score='raise', return_train_score=True,
+                 use_sample_weight='both'):
         self.param_distributions = param_distributions
         self.n_iter = n_iter
         self.random_state = random_state
@@ -1178,7 +1200,8 @@ class RandomizedSearchCV(BaseSearchCV):
              estimator=estimator, scoring=scoring, fit_params=fit_params,
              n_jobs=n_jobs, iid=iid, refit=refit, cv=cv, verbose=verbose,
              pre_dispatch=pre_dispatch, error_score=error_score,
-             return_train_score=return_train_score)
+             return_train_score=return_train_score,
+             use_sample_weight=use_sample_weight)
 
     def _get_param_iterator(self):
         """Return ParameterSampler instance for the given distributions"""
